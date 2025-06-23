@@ -345,7 +345,6 @@ with tab1:
                         key=weight_key,
                         value=st.session_state.get(weight_key, 0.0)
                     )
-                    st.session_state[weight_key] = weight
                 
                 with col_reps:
                     reps_key = f"reps_{progress_key}_{idx}"
@@ -354,7 +353,6 @@ with tab1:
                         key=reps_key,
                         value=st.session_state.get(reps_key, "")
                     )
-                    st.session_state[reps_key] = actual_reps
             else:
                 st.session_state.progress[progress_key][str(idx)] = False
         
