@@ -169,6 +169,16 @@ def save_exercise_choices(choices):
     with open('exercise_choices.json', 'w') as f:
         json.dump(choices, f)
 
+def load_workout_history():
+    if os.path.exists('workout_history.json'):
+        with open('workout_history.json', 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_workout_history(history):
+    with open('workout_history.json', 'w') as f:
+        json.dump(history, f)
+
 # Streamlit 앱 시작
 st.set_page_config(page_title="나의 운동 트래커", page_icon="💪", layout="wide")
 st.title("💪 운동 트래커 - Novice")
@@ -180,6 +190,8 @@ if 'progress' not in st.session_state:
     st.session_state.progress = load_workout_progress()
 if 'exercise_choices' not in st.session_state:
     st.session_state.exercise_choices = load_exercise_choices()
+if 'workout_history' not in st.session_state:
+    st.session_state.workout_history = load_workout_history()
 
 # 탭 생성
 tab1, tab2, tab3 = st.tabs(["📅 오늘의 운동", "📆 운동 계획", "📊 진행 상황"])
@@ -247,6 +259,39 @@ with tab1:
                         key=f"cb_{progress_key}_{idx}",
                         value=st.session_state.progress[progress_key].get(str(idx), False)
                     )
+                    
+                    # 운동 히스토리 보기
+                    with st.expander(f"📊 {selected_exercise['name']} 히스토리"):
+                        history = load_workout_history()
+                        exercise_history = []
+                        
+                        # 모든 날짜의 이 운동 기록 찾기
+                        for hist_date, routines in history.items():
+                            for routine, details in routines.items():
+                                if "details" in details:
+                                    for ex_idx, ex_data in details["details"].items():
+                                        if ex_data["exercise"] == selected_exercise['name']:
+                                            exercise_history.append({
+                                                "date": hist_date,
+                                                "weight": ex_data["weight"],
+                                                "reps": ex_data["reps"]
+                                            })
+                        
+                        if exercise_history:
+                            # 날짜순 정렬
+                            exercise_history.sort(key=lambda x: x["date"], reverse=True)
+                            
+                            # 최근 5개 기록 표시
+                            st.write("**최근 기록:**")
+                            for record in exercise_history[:5]:
+                                st.write(f"• {record['date']}: {record['weight']}kg × {record['reps']}회")
+                            
+                            # 최고 기록
+                            if any(record["weight"] > 0 for record in exercise_history):
+                                max_weight = max(record["weight"] for record in exercise_history if record["weight"] > 0)
+                                st.success(f"🏆 최고 무게: {max_weight}kg")
+                        else:
+                            st.info("아직 기록이 없습니다.")
             else:
                 # 선택지가 하나만 있는 경우
                 selected_exercise = exercise_group["options"][0]
@@ -255,10 +300,61 @@ with tab1:
                     key=f"cb_{progress_key}_{idx}",
                     value=st.session_state.progress[progress_key].get(str(idx), False)
                 )
+                
+                # 운동 히스토리 보기 (선택지 하나인 경우도 동일하게)
+                with st.expander(f"📊 {selected_exercise['name']} 히스토리"):
+                    history = load_workout_history()
+                    exercise_history = []
+                    
+                    for hist_date, routines in history.items():
+                        for routine, details in routines.items():
+                            if "details" in details:
+                                for ex_idx, ex_data in details["details"].items():
+                                    if ex_data["exercise"] == selected_exercise['name']:
+                                        exercise_history.append({
+                                            "date": hist_date,
+                                            "weight": ex_data["weight"],
+                                            "reps": ex_data["reps"]
+                                        })
+                    
+                    if exercise_history:
+                        exercise_history.sort(key=lambda x: x["date"], reverse=True)
+                        st.write("**최근 기록:**")
+                        for record in exercise_history[:5]:
+                            st.write(f"• {record['date']}: {record['weight']}kg × {record['reps']}회")
+                        
+                        if any(record["weight"] > 0 for record in exercise_history):
+                            max_weight = max(record["weight"] for record in exercise_history if record["weight"] > 0)
+                            st.success(f"🏆 최고 무게: {max_weight}kg")
+                    else:
+                        st.info("아직 기록이 없습니다.")
             
             if done:
                 completed += 1
                 st.session_state.progress[progress_key][str(idx)] = True
+                
+                # 무게와 횟수 입력
+                col_weight, col_reps = st.columns(2)
+                
+                with col_weight:
+                    weight_key = f"weight_{progress_key}_{idx}"
+                    weight = st.number_input(
+                        "무게 (kg)",
+                        min_value=0.0,
+                        step=2.5,
+                        key=weight_key,
+                        value=st.session_state.get(weight_key, 0.0)
+                    )
+                    st.session_state[weight_key] = weight
+                
+                with col_reps:
+                    reps_key = f"reps_{progress_key}_{idx}"
+                    actual_reps = st.text_input(
+                        f"실제 횟수 (목표: {selected_exercise['reps']})",
+                        key=reps_key,
+                        value=st.session_state.get(reps_key, "")
+                    )
+                    st.session_state[reps_key] = actual_reps
             else:
                 st.session_state.progress[progress_key][str(idx)] = False
         
@@ -272,6 +368,42 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("💾 진행 상황 저장", type="primary"):
+                # 운동 상세 정보 저장
+                workout_details = {
+                    "progress": st.session_state.progress[progress_key],
+                    "choices": st.session_state.exercise_choices.get(choice_key, {}),
+                    "details": {}
+                }
+                
+                # 각 운동의 무게와 횟수 저장
+                for idx in range(len(exercise_groups)):
+                    if st.session_state.progress[progress_key].get(str(idx), False):
+                        weight_key = f"weight_{progress_key}_{idx}"
+                        reps_key = f"reps_{progress_key}_{idx}"
+                        
+                        # 선택된 운동 이름 가져오기
+                        exercise_group = exercise_groups[idx]
+                        if len(exercise_group["options"]) > 1:
+                            selected_idx = st.session_state.exercise_choices[choice_key].get(str(idx), 0)
+                            exercise_name = exercise_group["options"][selected_idx]["name"]
+                        else:
+                            exercise_name = exercise_group["options"][0]["name"]
+                        
+                        workout_details["details"][str(idx)] = {
+                            "exercise": exercise_name,
+                            "weight": st.session_state.get(weight_key, 0),
+                            "reps": st.session_state.get(reps_key, ""),
+                            "date": date_str
+                        }
+                
+                # 기존 히스토리 불러오기
+                history = load_workout_history()
+                if date_str not in history:
+                    history[date_str] = {}
+                history[date_str][routine_name] = workout_details
+                
+                # 저장
+                save_workout_history(history)
                 save_workout_progress(st.session_state.progress)
                 save_exercise_choices(st.session_state.exercise_choices)
                 st.success("저장되었습니다!")
